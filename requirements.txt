@@ -1,0 +1,28 @@
+# Database & Cache
+psycopg2-binary
+redis
+
+# Message Queue
+kafka-python
+
+# Numerical & Data Analysis
+numpy
+pandas
+
+# Asynchronous Networking
+aiohttp
+websockets
+
+# Configuration & Utilities
+python-dotenv
+pyyaml
+
+# For ML (placeholders for now)
+# scikit-learn
+# tensorflow
+# torch
+
+# Linting & Testing
+ruff
+pytest
+pytest-asyncio
