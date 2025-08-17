@@ -2,6 +2,7 @@ import asyncio
 from src.data import MarketDataPipeline
 from src.strategy import StrategyEngine
 from src.risk import RiskEngine
+from src.execution import ExecutionHandler
 
 async def main():
     """
@@ -12,8 +13,9 @@ async def main():
     # Initialize the core components
     product_ids_to_trade = ["BTC-USD", "ETH-USD"]
     risk_engine = RiskEngine()
+    execution_handler = ExecutionHandler()
     market_data_pipeline = MarketDataPipeline(product_ids=product_ids_to_trade)
-    strategy_engine = StrategyEngine(market_data_pipeline, risk_engine)
+    strategy_engine = StrategyEngine(market_data_pipeline, risk_engine, execution_handler)
 
     # Start the components in the correct order
     await risk_engine.start()

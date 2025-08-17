@@ -1,65 +1,73 @@
 import pytest
-from unittest.mock import MagicMock
+import asyncio
+from unittest.mock import MagicMock, AsyncMock
+import pandas as pd
+import collections
+
 from src.strategy.strategy_engine import StrategyEngine
 from src.risk.risk_engine import RiskEngine
+from src.execution import ExecutionHandler
+from src.models import Order, OrderSide
 
 @pytest.fixture
-def strategy_engine():
-    """Fixture to create a StrategyEngine instance with a mock RiskEngine."""
+def mock_dependencies():
+    """Provides a dictionary of mocked dependencies for the StrategyEngine."""
     mock_risk_engine = MagicMock(spec=RiskEngine)
-    mock_risk_engine.check_pre_trade_risk.return_value = True  # Assume all orders are approved
+    mock_risk_engine.check_pre_trade_risk.return_value = True
 
-    return StrategyEngine(
-        market_data_pipeline=None,
-        risk_engine=mock_risk_engine,
-        short_window=5,
-        long_window=10
-    )
+    mock_execution_handler = MagicMock(spec=ExecutionHandler)
+    mock_execution_handler.execute_order = AsyncMock(return_value=True)
 
-def test_sma_crossover_strategy_generates_correct_signals(strategy_engine, capsys):
-    """
-    Tests that the SMA crossover strategy correctly identifies and logs
-    a Golden Cross (BUY) and a Death Cross (SELL) in the correct order.
-    """
-    # 1. Arrange - Create a predictable stream of mock trade messages
-    class MockMessage:
-        def __init__(self, value):
-            self.value = value
+    return {
+        "risk_engine": mock_risk_engine,
+        "execution_handler": mock_execution_handler
+    }
 
+class MockMessage:
+    def __init__(self, value):
+        self.value = value
+
+@pytest.mark.asyncio
+async def test_sma_crossover_strategy(mock_dependencies, capsys):
+    """Tests that the SMA crossover strategy generates correct signals."""
+    engine = StrategyEngine(None, **mock_dependencies)
+    engine._initialize_product_state('BTC-USD') # Initialize state
+
+    # Arrange
     base_price = 100
-    # Phase 1: Long period of low, stable prices to establish a baseline
-    prices = [float(base_price)] * strategy_engine.long_window
-    # Phase 2: A smaller, sharp rise to trigger a Golden Cross
-    prices.extend([float(base_price + 5)] * strategy_engine.short_window)
-    # Phase 3: A sharp fall to trigger a Death Cross
-    prices.extend([float(base_price - 5)] * strategy_engine.short_window)
+    cfg = engine.strategies['sma_crossover']
+    prices = [float(base_price)] * cfg['long_window']
+    prices.extend([float(base_price + 10)] * cfg['short_window'])
+    prices.extend([float(base_price - 20)] * cfg['short_window'])
 
-    mock_messages = []
-    for i, price in enumerate(prices):
-        trade = {
-            'timestamp': f'2025-01-01T12:00:{i:02d}Z',
-            'product_id': 'BTC-USD',
-            'price': price,
-            'size': 1.0,
-            'side': 'BUY'
-        }
-        mock_messages.append(MockMessage(trade))
+    # Act
+    for price in prices:
+        await engine._process_sma_crossover('BTC-USD', price)
 
-    # 2. Act - Process the messages one by one
-    for msg in mock_messages:
-        strategy_engine._process_trade_message(msg)
-
-    # 3. Assert - Check the captured output for signals
+    # Assert
     captured = capsys.readouterr()
-    output = captured.out
+    assert "BUY SIGNAL (SMA Crossover)" in captured.out
+    assert "SELL SIGNAL (SMA Crossover)" in captured.out
+    assert mock_dependencies["execution_handler"].execute_order.call_count == 2
 
-    assert "--- BUY SIGNAL (Golden Cross) ---" in output
-    assert "--- SELL SIGNAL (Death Cross) ---" in output
+@pytest.mark.asyncio
+async def test_rsi_strategy(mock_dependencies, capsys):
+    """Tests that the RSI strategy generates correct signals."""
+    engine = StrategyEngine(None, **mock_dependencies)
+    engine._initialize_product_state('BTC-USD') # Initialize state
 
-    # Check that the signals appeared in the correct order
-    buy_signal_index = output.find("BUY SIGNAL")
-    sell_signal_index = output.find("SELL SIGNAL")
+    # Arrange
+    base_price = 100
+    prices = [float(base_price)] * 20
+    prices.extend([95, 94, 93, 92, 91, 90]) # Oversold
+    prices.extend([105, 106, 107, 108, 109, 110]) # Overbought
 
-    assert buy_signal_index != -1, "BUY Signal was not found in the output"
-    assert sell_signal_index != -1, "SELL Signal was not found in the output"
-    assert buy_signal_index < sell_signal_index, "BUY Signal did not appear before SELL Signal"
+    # Act
+    for price in prices:
+        await engine._process_rsi_strategy('BTC-USD', price)
+
+    # Assert
+    captured = capsys.readouterr()
+    assert "BUY SIGNAL (RSI)" in captured.out
+    assert "SELL SIGNAL (RSI)" in captured.out
+    assert mock_dependencies["execution_handler"].execute_order.call_count == 2

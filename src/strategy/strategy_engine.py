@@ -3,154 +3,155 @@ import json
 import os
 import collections
 import numpy as np
+import pandas as pd
 from kafka import KafkaConsumer
 from src.models import Order, OrderSide
 
 class StrategyEngine:
     """
-    Executes trading strategies based on real-time market data from Kafka.
+    Executes multiple trading strategies based on real-time market data.
     """
-    def __init__(self, market_data_pipeline, risk_engine, short_window=5, long_window=12):
+    def __init__(self, market_data_pipeline, risk_engine, execution_handler):
         print("Initializing StrategyEngine...")
         self.market_data_pipeline = market_data_pipeline
         self.risk_engine = risk_engine
+        self.execution_handler = execution_handler
         self.kafka_topic = "market_data.trades"
-        self.short_window = short_window
-        self.long_window = long_window
-        self.product_strategies = {}
+
+        # --- Strategy Configurations ---
+        self.strategies = {
+            'sma_crossover': {
+                'short_window': 5,
+                'long_window': 12,
+            },
+            'rsi': {
+                'window': 14,
+                'oversold_threshold': 30,
+                'overbought_threshold': 70,
+            }
+        }
+        self.product_states = {}
 
         self._consumer_task = None
         self._initialize_kafka_consumer()
 
     def _initialize_kafka_consumer(self):
-        """Initializes the Kafka consumer with a fallback to a mock."""
         try:
             self.kafka_consumer = KafkaConsumer(
                 self.kafka_topic,
                 bootstrap_servers=os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092'),
                 value_deserializer=lambda v: json.loads(v.decode('utf-8')),
-                auto_offset_reset='latest',
-                group_id='strategy-engine-group-1',
-                client_id='strategy-engine-1'
+                auto_offset_reset='latest', group_id='strategy-engine-group-1'
             )
-            print("Kafka Consumer initialized successfully.")
         except Exception as e:
             print(f"Failed to initialize Kafka Consumer: {e}. Using mock consumer.")
             self.kafka_consumer = self._get_mock_kafka_consumer()
 
     def _get_mock_kafka_consumer(self):
-        """Returns a mock Kafka consumer that yields a predictable stream of trades."""
         class MockMessage:
-            def __init__(self, value):
-                self.value = value
-
+            def __init__(self, value): self.value = value
         class MockKafkaConsumer:
-            def __init__(self, topic, short_window, long_window):
+            def __init__(self, topic, strategies):
                 self._topic = topic
-                self.short_window = short_window
-                self.long_window = long_window
+                self.strategies = strategies
                 self._messages = self._generate_test_data()
-                print(f"[Mock Kafka] Consumer subscribed to topic '{topic}' with test data.")
-
             def _generate_test_data(self):
-                """Generates a clean data sequence to test crossovers."""
-                base_price = 100
                 messages = []
-
-                # Phase 1: Long period of low, stable prices
-                prices = [float(base_price)] * self.long_window
-                # Phase 2: Sharp rise to trigger a Golden Cross
-                prices.extend([float(base_price + 10)] * self.short_window)
-                # Phase 3: Sharp fall to trigger a Death Cross
-                prices.extend([float(base_price - 10)] * self.short_window)
-
+                # RSI test data: flat, then dip (BUY), then spike (SELL)
+                prices = [100.0] * 20 + [95.0, 94.0, 93.0, 92.0, 91.0] + [105.0, 106.0, 107.0, 108.0, 109.0]
                 for i, price in enumerate(prices):
-                    trade = {
-                        'timestamp': f'2025-01-01T12:00:{i:02d}Z',
-                        'product_id': 'BTC-USD',
-                        'price': price,
-                        'size': 1.0,
-                        'side': 'BUY'
-                    }
-                    messages.append(MockMessage(trade))
+                    messages.append(MockMessage({'product_id': 'BTC-USD', 'price': price, 'side': 'BUY'}))
                 return messages
-
             def __iter__(self): return iter(self._messages)
-            def close(self): print("[Mock Kafka] Consumer closed.")
+            def close(self): pass
+        return MockKafkaConsumer(self.kafka_topic, self.strategies)
 
-        return MockKafkaConsumer(self.kafka_topic, self.short_window, self.long_window)
-
-    def _initialize_strategy_for_product(self, product_id):
-        """Initializes the state for a new product if not already present."""
-        if product_id not in self.product_strategies:
-            print(f"Initializing SMA Crossover strategy for {product_id}...")
-            self.product_strategies[product_id] = {
-                'prices': collections.deque(maxlen=self.long_window),
-                'prev_short_sma': None,
-                'prev_long_sma': None,
+    def _initialize_product_state(self, product_id):
+        if product_id not in self.product_states:
+            print(f"Initializing strategies for {product_id}...")
+            self.product_states[product_id] = {
+                'sma_crossover': {
+                    'prices': collections.deque(maxlen=self.strategies['sma_crossover']['long_window']),
+                    'prev_short_sma': None, 'prev_long_sma': None,
+                },
+                'rsi': {
+                    'prices': collections.deque(maxlen=self.strategies['rsi']['window'] + 1),
+                    'prev_rsi': None
+                }
             }
 
-    def _process_trade_message(self, message):
-        """Processes a single trade message to check for trading signals."""
+    async def _process_trade_message(self, message):
         trade_data = message.value
         product_id = trade_data['product_id']
         price = trade_data['price']
+        self._initialize_product_state(product_id)
 
-        self._initialize_strategy_for_product(product_id)
+        # Dispatch to all registered strategies
+        await self._process_sma_crossover(product_id, price)
+        await self._process_rsi_strategy(product_id, price)
 
-        state = self.product_strategies[product_id]
+    async def _process_sma_crossover(self, product_id, price):
+        state = self.product_states[product_id]['sma_crossover']
         state['prices'].append(price)
 
-        if len(state['prices']) < self.long_window:
-            return
+        cfg = self.strategies['sma_crossover']
+        if len(state['prices']) < cfg['long_window']: return
 
         prices_array = np.array(state['prices'])
-        short_sma = np.mean(prices_array[-self.short_window:])
+        short_sma = np.mean(prices_array[-cfg['short_window']:])
         long_sma = np.mean(prices_array)
 
-        prev_short_sma = state.get('prev_short_sma')
-        prev_long_sma = state.get('prev_long_sma')
-
-        print(f"[{product_id}] Price: {price:7.2f} | Short SMA: {short_sma:7.2f} | Long SMA: {long_sma:7.2f}")
-
-        if prev_short_sma is not None and prev_long_sma is not None:
-            signal = None
-            if short_sma > long_sma and prev_short_sma <= prev_long_sma:
+        signal = None
+        if state['prev_short_sma'] is not None:
+            if short_sma > long_sma and state['prev_short_sma'] <= state['prev_long_sma']:
                 signal = OrderSide.BUY
-            elif short_sma < long_sma and prev_short_sma >= prev_long_sma:
+            elif short_sma < long_sma and state['prev_short_sma'] >= state['prev_long_sma']:
                 signal = OrderSide.SELL
 
-            if signal:
-                # 1. Create an order object
-                # For now, use a fixed size. A real system would use a position sizing model.
-                order_size = 0.01
-                order = Order(
-                    product_id=product_id,
-                    side=signal,
-                    size=order_size,
-                    price=price
-                )
+        state['prev_short_sma'], state['prev_long_sma'] = short_sma, long_sma
+        if signal: await self._create_and_execute_order(product_id, signal, price, "SMA Crossover")
 
-                # 2. Check the order with the risk engine
-                is_approved = self.risk_engine.check_pre_trade_risk(order)
+    async def _process_rsi_strategy(self, product_id, price):
+        state = self.product_states[product_id]['rsi']
+        state['prices'].append(price)
 
-                # 3. Log the outcome of the risk check
-                if is_approved:
-                    print(f"[{product_id}] --- {signal.value} SIGNAL: Order APPROVED by Risk Engine ---")
-                    # In a real system, this approved order would be sent to an execution handler.
-                else:
-                    print(f"[{product_id}] --- {signal.value} SIGNAL: Order REJECTED by Risk Engine ---")
+        cfg = self.strategies['rsi']
+        if len(state['prices']) < cfg['window'] + 1: return
 
-        state['prev_short_sma'] = short_sma
-        state['prev_long_sma'] = long_sma
+        deltas = pd.Series(state['prices']).diff().dropna()
+        gain = deltas.clip(lower=0).ewm(com=cfg['window'] - 1, min_periods=cfg['window']).mean().iloc[-1]
+        loss = -deltas.clip(upper=0).ewm(com=cfg['window'] - 1, min_periods=cfg['window']).mean().iloc[-1]
+
+        if loss == 0: rsi = 100
+        else: rs = gain / loss; rsi = 100 - (100 / (1 + rs))
+
+        print(f"[{product_id}] RSI: {rsi:.2f}")
+
+        signal = None
+        if state['prev_rsi'] is not None:
+            if rsi < cfg['oversold_threshold'] and state['prev_rsi'] >= cfg['oversold_threshold']:
+                signal = OrderSide.BUY # Oversold, signal to buy
+            elif rsi > cfg['overbought_threshold'] and state['prev_rsi'] <= cfg['overbought_threshold']:
+                signal = OrderSide.SELL # Overbought, signal to sell
+
+        state['prev_rsi'] = rsi
+        if signal: await self._create_and_execute_order(product_id, signal, price, "RSI")
+
+    async def _create_and_execute_order(self, product_id, side, price, strategy_name):
+        order_size = 0.01
+        order = Order(product_id=product_id, side=side, size=order_size, price=price)
+
+        if self.risk_engine.check_pre_trade_risk(order):
+            print(f"[{product_id}] --- {side.value} SIGNAL ({strategy_name}): Order APPROVED. Sending to ExecutionHandler. ---")
+            await self.execution_handler.execute_order(order)
+        else:
+            print(f"[{product_id}] --- {side.value} SIGNAL ({strategy_name}): Order REJECTED by Risk Engine. ---")
 
     async def _run_kafka_consumer(self):
-        """The main loop to consume messages from Kafka."""
         print("Starting Kafka consumer loop...")
-        loop = asyncio.get_running_loop()
         try:
             for message in self.kafka_consumer:
-                await loop.run_in_executor(None, self._process_trade_message, message)
+                await self._process_trade_message(message)
             print("Finished processing all messages in mock consumer.")
         except asyncio.CancelledError:
             print("Kafka consumer loop cancelled.")
@@ -158,12 +159,10 @@ class StrategyEngine:
             print("Kafka consumer loop stopped.")
 
     async def start(self):
-        """Starts the strategy engine and its Kafka consumer."""
         print("StrategyEngine starting...")
         self._consumer_task = asyncio.create_task(self._run_kafka_consumer())
 
     async def stop(self):
-        """Stops the strategy engine and its Kafka consumer."""
         print("StrategyEngine stopping...")
         if self._consumer_task:
             self._consumer_task.cancel()
