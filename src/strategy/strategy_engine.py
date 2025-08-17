@@ -4,6 +4,7 @@ import os
 import collections
 import numpy as np
 from kafka import KafkaConsumer
+from src.models import Order, OrderSide
 
 class StrategyEngine:
     """
@@ -113,10 +114,32 @@ class StrategyEngine:
         print(f"[{product_id}] Price: {price:7.2f} | Short SMA: {short_sma:7.2f} | Long SMA: {long_sma:7.2f}")
 
         if prev_short_sma is not None and prev_long_sma is not None:
+            signal = None
             if short_sma > long_sma and prev_short_sma <= prev_long_sma:
-                print(f"[{product_id}] --- BUY SIGNAL (Golden Cross) @ {price:.2f} ---")
+                signal = OrderSide.BUY
             elif short_sma < long_sma and prev_short_sma >= prev_long_sma:
-                print(f"[{product_id}] --- SELL SIGNAL (Death Cross) @ {price:.2f} ---")
+                signal = OrderSide.SELL
+
+            if signal:
+                # 1. Create an order object
+                # For now, use a fixed size. A real system would use a position sizing model.
+                order_size = 0.01
+                order = Order(
+                    product_id=product_id,
+                    side=signal,
+                    size=order_size,
+                    price=price
+                )
+
+                # 2. Check the order with the risk engine
+                is_approved = self.risk_engine.check_pre_trade_risk(order)
+
+                # 3. Log the outcome of the risk check
+                if is_approved:
+                    print(f"[{product_id}] --- {signal.value} SIGNAL: Order APPROVED by Risk Engine ---")
+                    # In a real system, this approved order would be sent to an execution handler.
+                else:
+                    print(f"[{product_id}] --- {signal.value} SIGNAL: Order REJECTED by Risk Engine ---")
 
         state['prev_short_sma'] = short_sma
         state['prev_long_sma'] = long_sma

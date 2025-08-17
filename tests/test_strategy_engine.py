@@ -1,12 +1,17 @@
 import pytest
+from unittest.mock import MagicMock
 from src.strategy.strategy_engine import StrategyEngine
+from src.risk.risk_engine import RiskEngine
 
 @pytest.fixture
 def strategy_engine():
-    """Fixture to create a StrategyEngine instance for testing."""
+    """Fixture to create a StrategyEngine instance with a mock RiskEngine."""
+    mock_risk_engine = MagicMock(spec=RiskEngine)
+    mock_risk_engine.check_pre_trade_risk.return_value = True  # Assume all orders are approved
+
     return StrategyEngine(
         market_data_pipeline=None,
-        risk_engine=None,
+        risk_engine=mock_risk_engine,
         short_window=5,
         long_window=10
     )
