@@ -10,8 +10,9 @@ async def main():
     print("Starting trading bot...")
 
     # Initialize the core components
+    product_ids_to_trade = ["BTC-USD", "ETH-USD"]
     risk_engine = RiskEngine()
-    market_data_pipeline = MarketDataPipeline()
+    market_data_pipeline = MarketDataPipeline(product_ids=product_ids_to_trade)
     strategy_engine = StrategyEngine(market_data_pipeline, risk_engine)
 
     # Start the components in the correct order
