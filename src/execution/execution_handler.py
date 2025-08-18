@@ -1,31 +1,43 @@
 from src.models import Order
+from typing import List
 
 class ExecutionHandler:
     """
     Handles the execution of trade orders.
-
-    This is currently a mock handler that simulates order execution
-    by logging the order to the console. In a real-world system, this
-    component would be responsible for interacting with exchange APIs
-    to place, monitor, and cancel orders.
+    Can operate in live or backtest mode.
     """
-    def __init__(self):
-        print("Initializing ExecutionHandler (Mock)...")
+    def __init__(self, backtest: bool = False):
+        """
+        Initializes the ExecutionHandler.
+
+        Args:
+            backtest (bool): If True, handler will run in backtest mode,
+                             storing trades instead of executing them.
+        """
+        self.backtest = backtest
+        self.executed_trades: List[Order] = []
+
+        mode = "Backtest" if self.backtest else "Live"
+        print(f"Initializing ExecutionHandler ({mode} Mode)...")
 
     async def execute_order(self, order: Order) -> bool:
         """
-        Simulates the execution of an order by logging it.
-
-        In a production system, this would involve:
-        - Formatting the order for the specific exchange's API.
-        - Sending the order via a REST or FIX API call.
-        - Handling the response (e.g., order ACK, NACK, fill).
-        - Updating the portfolio state.
-
-        Returns:
-            bool: True to simulate a successful execution.
+        Executes an order. In live mode, this would send the order to an
+        exchange. In backtest mode, it records the trade for analysis.
         """
-        print(f"[ExecutionHandler] ===> EXECUTING ORDER: {order}")
-        # Here, you would add the logic to send the order to the exchange.
-        # For now, we just log and assume success.
-        return True
+        if self.backtest:
+            self.executed_trades.append(order)
+            print(f"[ExecutionHandler] [Backtest] Logged trade: {order}")
+            return True
+        else:
+            # Live execution logic would go here.
+            print(f"[ExecutionHandler] [Live] ===> EXECUTING ORDER: {order}")
+            return True
+
+    async def start(self):
+        """Starts the execution handler."""
+        print("ExecutionHandler started.")
+
+    async def stop(self):
+        """Stops the execution handler."""
+        print("ExecutionHandler stopped.")
