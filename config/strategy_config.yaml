@@ -1,0 +1,96 @@
+# Strategy Configuration
+strategies:
+  rsi_divergence:
+    enabled: true
+    timeframes: [1, 5, 15, 60]  # seconds
+    rsi_period: 14
+    oversold_threshold: 30
+    overbought_threshold: 70
+    divergence_lookback: 20
+    min_divergence_strength: 0.7
+    
+  bollinger_squeeze:
+    enabled: true
+    period: 20
+    std_dev: 2.0
+    squeeze_threshold: 0.1
+    breakout_multiplier: 1.5
+    
+  volume_spike:
+    enabled: true
+    volume_ma_period: 20
+    spike_threshold: 2.5
+    follow_through_period: 5
+    
+  ml_momentum:
+    enabled: true
+    model_type: "lstm"
+    lookback_period: 100
+    prediction_horizon: 5
+    retrain_frequency: 3600  # seconds
+    confidence_threshold: 0.75
+    
+  market_making:
+    enabled: true
+    spread_target: 0.001  # 0.1%
+    inventory_target: 0.0
+    max_position_ratio: 0.3
+    quote_refresh_rate: 0.1  # seconds
+
+# Risk Management
+risk_management:
+  max_position_size: 0.02  # 2% of portfolio per position
+  max_portfolio_exposure: 0.8  # 80% of total capital
+  max_daily_loss: 0.05  # 5% daily loss limit
+  max_drawdown: 0.15  # 15% maximum drawdown
+  var_confidence: 0.95
+  var_horizon: 1  # days
+  correlation_limit: 0.7
+  
+  position_sizing:
+    method: "kelly_criterion"
+    kelly_fraction: 0.25
+    min_bet_size: 0.001
+    max_bet_size: 0.05
+    volatility_target: 0.15
+
+# Exchange Configuration
+exchanges:
+  binance:
+    enabled: true
+    api_url: "https://api.binance.com"
+    ws_url: "wss://stream.binance.com:9443"
+    rate_limits:
+      orders_per_second: 10
+      requests_per_minute: 1200
+    
+  coinbase:
+    enabled: true
+    api_url: "https://api.exchange.coinbase.com"
+    ws_url: "wss://ws-feed.exchange.coinbase.com"
+    rate_limits:
+      orders_per_second: 5
+      requests_per_minute: 600
+
+# Trading Pairs
+trading_pairs:
+  - symbol: "BTC-USD"
+    min_order_size: 0.001
+    tick_size: 0.01
+    enabled: true
+  - symbol: "ETH-USD"
+    min_order_size: 0.01
+    tick_size: 0.01
+    enabled: true
+  - symbol: "SOL-USD"
+    min_order_size: 0.1
+    tick_size: 0.001
+    enabled: true
+
+# Performance Targets
+performance_targets:
+  sharpe_ratio: 2.5
+  max_drawdown: 0.05
+  win_rate: 0.60
+  profit_factor: 1.5
+  daily_volume_target: 1000000  # $1M
