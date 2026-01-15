@@ -5,6 +5,8 @@ import pandas as pd
 import psycopg2
 from apscheduler.schedulers.blocking import BlockingScheduler
 import logging
+from py_vollib.black_scholes import delta, gamma, theta, vega
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -107,14 +109,21 @@ def create_tables(conn):
                 symbol VARCHAR(255),
                 strike REAL,
                 expiry TIMESTAMP,
-                premium REAL,
-                oi BIGINT,
-                volume BIGINT,
+                call_premium REAL,
+                call_oi BIGINT,
+                call_volume BIGINT,
+                put_premium REAL,
+                put_oi BIGINT,
+                put_volume BIGINT,
                 iv REAL,
-                delta REAL,
-                gamma REAL,
-                theta REAL,
-                vega REAL,
+                call_delta REAL,
+                call_gamma REAL,
+                call_theta REAL,
+                call_vega REAL,
+                put_delta REAL,
+                put_gamma REAL,
+                put_theta REAL,
+                put_vega REAL,
                 PRIMARY KEY (timestamp, symbol, strike, expiry)
             );
         """)
@@ -150,13 +159,61 @@ def create_tables(conn):
     except Exception as e:
         logging.error(f"Error creating tables: {e}")
 
-def calculate_greeks(spot, strike, expiry, volatility, rate):
+def get_india_vix(api):
+    """Fetches the current India VIX value."""
+    try:
+        # The token for India VIX might vary. 'INDIAVIX' is a common representation.
+        ret = api.get_quotes(exchange='NSE', token='INDIAVIX')
+        if ret and ret['stat'] == 'Ok':
+            return float(ret['lp']) / 100 # VIX is in percentage
+        else:
+            logging.error(f"Could not get quotes for India VIX: {ret}")
+            return None # Default to a reasonable IV if fetch fails
+    except Exception as e:
+        logging.error(f"Error getting India VIX: {e}")
+        return None
+
+def calculate_greeks(spot, strike, expiry, iv, flag, rate=0.05):
     """
-    Calculates option Greeks.
-    (Placeholder for now)
+    Calculates option Greeks using py_vollib.
+    flag: 'c' for call, 'p' for put
     """
-    # This will be implemented in a later step
-    return {'delta': 0.5, 'gamma': 0.02, 'theta': 0.1, 'vega': 0.2}
+    try:
+        t = (expiry - datetime.now()).days / 365.25
+        if t < 0: t = 0 # Handle expired options
+
+        d = delta(flag, spot, strike, t, rate, iv)
+        g = gamma(flag, spot, strike, t, rate, iv)
+        th = theta(flag, spot, strike, t, rate, iv)
+        v = vega(flag, spot, strike, t, rate, iv)
+
+        return {'delta': d, 'gamma': g, 'theta': th, 'vega': v}
+    except Exception as e:
+        logging.error(f"Error calculating Greeks for strike {strike}: {e}")
+        return {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
+
+import os
+import pickle
+
+def get_instrument_map(api, exchange='NSE'):
+    """Downloads the instrument master and creates a symbol-to-token map."""
+    map_file = f"{exchange}_instrument_map.pickle"
+    if os.path.exists(map_file):
+        with open(map_file, 'rb') as f:
+            return pickle.load(f)
+
+    try:
+        instrument_list = api.get_master(exchange=exchange)
+        instrument_map = {item['tsym']: item['token'] for item in instrument_list}
+
+        with open(map_file, 'wb') as f:
+            pickle.dump(instrument_map, f)
+
+        logging.info(f"Instrument map for {exchange} created and cached.")
+        return instrument_map
+    except Exception as e:
+        logging.error(f"Error creating instrument map for {exchange}: {e}")
+        return {}
 
 def get_ltp(api, exchange, token):
     """Gets the last traded price for a given symbol."""
@@ -231,27 +288,62 @@ def main():
         create_tables(conn)
 
     if api and conn:
+        # Get instrument maps
+        nse_map = get_instrument_map(api, 'NSE')
+        nfo_map = get_instrument_map(api, 'NFO')
+
         # Example usage
         from datetime import datetime, timedelta
-        symbols = ['NIFTY', 'BANKNIFTY']
+        symbols = ['NIFTY 50', 'NIFTY BANK'] # Using more specific names
         to_date = datetime.now()
         from_date = to_date - timedelta(days=30)
 
-        for symbol in symbols:
+        for symbol_name in symbols:
+            token = nse_map.get(symbol_name)
+            if not token:
+                logging.warning(f"Could not find token for {symbol_name}. Skipping.")
+                continue
+
             # Fetch and store underlying data
-            underlying_data = fetch_historical_data(api, symbol, from_date, to_date)
+            underlying_data = fetch_historical_data(api, token, from_date, to_date)
             if underlying_data is not None:
                 # Add symbol column before storing
-                underlying_data['symbol'] = symbol
+                underlying_data['symbol'] = symbol_name
                 store_data_db(conn, underlying_data.reset_index(), 'underlying_data')
 
             # Fetch and store option chain data
-            option_chain = fetch_option_chain(api, symbol)
+            option_chain = fetch_option_chain(api, symbol_name)
             if option_chain is not None:
-                # This part needs to be adapted to the actual structure of the option chain data
-                # For now, we'll just log a warning
-                logging.warning("Option chain data storage is not fully implemented.")
-                # store_data_db(conn, option_chain, 'options_data')
+                spot_price = get_ltp(api, 'NSE', token)
+                iv = get_india_vix(api) or 0.15 # Use default if fetch fails
+
+                if spot_price:
+                    options_data = []
+                    for option in option_chain:
+                        try:
+                            expiry = datetime.strptime(option['expiry_date'], '%d-%b-%Y')
+                            strike = float(option['strike_price'])
+
+                            # Calculate greeks for call and put
+                            call_greeks = calculate_greeks(spot_price, strike, expiry, iv, 'c')
+                            put_greeks = calculate_greeks(spot_price, strike, expiry, iv, 'p')
+
+                            options_data.append({
+                                'timestamp': datetime.now(), 'symbol': symbol_name, 'strike': strike, 'expiry': expiry,
+                                'call_premium': float(option.get('call_ltp', 0)),
+                                'call_oi': int(option.get('call_oi', 0)), 'call_volume': 0,
+                                'put_premium': float(option.get('put_ltp', 0)),
+                                'put_oi': int(option.get('put_oi', 0)), 'put_volume': 0,
+                                'iv': iv,
+                                **{'call_' + k: v for k, v in call_greeks.items()},
+                                **{'put_' + k: v for k, v in put_greeks.items()}
+                            })
+                        except Exception as e:
+                            logging.error(f"Error processing option {option.get('symbol')}: {e}")
+
+                    if options_data:
+                        df_options = pd.DataFrame(options_data)
+                        store_data_db(conn, df_options, 'options_data')
 
         conn.close()
         logging.info("Database connection closed.")

@@ -69,19 +69,13 @@ def calculate_iv_rank(df):
                 return (current_iv - min_iv) / (max_iv - min_iv)
     return 0.5 # Default value
 
-def add_options_features(df, option_chain):
+def add_options_features(df, pcr_series=None):
     """Adds options-specific features."""
     if 'oi' in df.columns:
         df['oi_change'] = df['oi'].diff()
 
-    # Calculate Put-Call Ratio
-    df['pcr'] = calculate_pcr(option_chain)
-
-    # Calculate Max Pain
-    df['max_pain'] = calculate_max_pain(option_chain)
-
-    # Calculate IV Rank
-    df['iv_rank'] = calculate_iv_rank(df)
+    if pcr_series is not None:
+        df = df.join(pcr_series, how='left').fillna(method='ffill')
 
     logging.info("Options-specific features added.")
     return df
@@ -149,12 +143,7 @@ if __name__ == '__main__':
 
     # Feature Engineering Pipeline
     df = add_technical_indicators(df)
-    # Create a dummy option chain for demonstration
-    option_chain_demo = [
-        {'put_oi': 1000, 'call_oi': 1200},
-        {'put_oi': 1500, 'call_oi': 1100}
-    ]
-    df = add_options_features(df, option_chain_demo)
+    df = add_options_features(df)
     df = add_time_features(df)
 
     # Create Labels
