@@ -48,7 +48,7 @@ class PaperTradingAccount:
                 self.positions[order['symbol']]['entry_price'] = ((current_price * current_quantity) + (execution_price * order['quantity'])) / new_quantity
                 self.positions[order['symbol']]['quantity'] = new_quantity
 
-                self.log_trade('BUY', order, execution_price)
+                self.log_trade('BUY', order, execution_price, 0) # No PnL on buy
             else:
                 logging.warning("Insufficient capital to execute buy order.")
 
@@ -57,14 +57,20 @@ class PaperTradingAccount:
             proceeds = (execution_price * order['quantity']) - transaction_cost
             if self.positions.get(order['symbol'], {}).get('quantity', 0) >= order['quantity']:
                 self.capital += proceeds
+
+                # Calculate PnL
+                entry_price = self.positions[order['symbol']]['entry_price']
+                pnl = (execution_price - entry_price) * order['quantity']
+
                 self.positions[order['symbol']]['quantity'] -= order['quantity']
                 if self.positions[order['symbol']]['quantity'] == 0:
                     del self.positions[order['symbol']]
-                self.log_trade('SELL', order, execution_price)
+
+                self.log_trade('SELL', order, execution_price, pnl)
             else:
                 logging.warning("Insufficient position to execute sell order.")
 
-    def log_trade(self, trade_type, order, execution_price):
+    def log_trade(self, trade_type, order, execution_price, pnl):
         """Logs a trade to the trade history."""
         trade_log = {
             'timestamp': order['timestamp'],
@@ -72,7 +78,7 @@ class PaperTradingAccount:
             'type': trade_type,
             'quantity': order['quantity'],
             'price': execution_price,
-            'pnl': 0 # PnL is calculated on closing the position
+            'pnl': pnl
         }
         self.trade_history.append(trade_log)
         logging.info(f"Trade executed: {trade_log}")

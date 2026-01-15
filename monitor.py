@@ -32,8 +32,7 @@ def plot_equity_curve(trade_history, initial_capital, save_path='reports/equity_
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.set_index('timestamp')
 
-    # Calculate cumulative PnL
-    df['pnl'] = df.apply(lambda row: (row['price'] * row['quantity']) if row['type'] == 'SELL' else -(row['price'] * row['quantity']), axis=1)
+    # Use the PnL from the trade history
     df['cumulative_pnl'] = df['pnl'].cumsum()
     df['equity'] = initial_capital + df['cumulative_pnl']
 
@@ -100,13 +99,7 @@ if __name__ == '__main__':
     # Analyze trades (Note: PnL calculation in paper_trader is simplified)
     # For a more accurate analysis, PnL should be calculated per trade
     trade_df = pd.DataFrame(account.trade_history)
-    # This is a simplified PnL calculation for demonstration
-    buy_trades = trade_df[trade_df['type'] == 'BUY'].set_index('symbol')
-    sell_trades = trade_df[trade_df['type'] == 'SELL'].set_index('symbol')
-    pnl = (sell_trades['price'] - buy_trades['price']) * sell_trades['quantity']
-    trade_df.loc[trade_df['type'] == 'SELL', 'pnl'] = pnl.values
-
-    trade_analysis = analyze_trades(trade_df.to_dict('records'))
+    trade_analysis = analyze_trades(account.trade_history)
 
     # Plot equity curve
     plot_equity_curve(trade_df.to_dict('records'), account.initial_capital)

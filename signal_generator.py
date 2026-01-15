@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import logging
 from data_collector import get_latest_data, fetch_option_chain, get_ltp
-from feature_engineer import add_technical_indicators, add_options_features, add_time_features
+from feature_engineer import add_technical_indicators, add_options_features, add_time_features, calculate_pcr
 import yaml
 
 # Configure logging
@@ -26,15 +26,16 @@ def get_live_data(conn, symbol, lookback):
     """Fetches live market data from the database."""
     return get_latest_data(conn, symbol, lookback)
 
-def preprocess_live_data(df, scaler, api, symbol, feature_columns):
+def preprocess_live_data(df, scaler, api, symbol, feature_columns, option_chain):
     """Applies the same transformations as training."""
-    option_chain = fetch_option_chain(api, symbol)
-    if option_chain is None:
-        logging.warning("Could not fetch option chain. Options features will be placeholders.")
-        option_chain = []  # Use empty list to avoid errors
+    if option_chain:
+        pcr = calculate_pcr(option_chain)
+        df['pcr'] = pcr
+    else:
+        df['pcr'] = 0 # Default value if option chain is not available
 
     df = add_technical_indicators(df)
-    df = add_options_features(df, option_chain)
+    df = add_options_features(df) # add_options_features will now just use the columns in the df
     df = add_time_features(df)
     df.dropna(inplace=True)
 
@@ -121,7 +122,8 @@ if __name__ == '__main__':
         # Reindex live data to match the training feature columns
         live_data_reindexed = live_data.reindex(columns=feature_columns, fill_value=0)
 
-        processed_data = preprocess_live_data(live_data_reindexed, scaler, api, symbol)
+        option_chain = fetch_option_chain(api, symbol)
+        processed_data = preprocess_live_data(live_data_reindexed, scaler, api, symbol, feature_columns, option_chain)
 
         signal, confidence = generate_signal(model, processed_data, lookback)
         logging.info(f"Generated Signal: {signal} with confidence {confidence:.2f}")

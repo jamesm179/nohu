@@ -96,20 +96,23 @@ def hyperparameter_tune():
 if __name__ == '__main__':
     conn = connect_db()
     if conn:
-        # Fetch data from the database
-        # Using a large number for lookback to get all data
-        df = get_latest_data(conn, 'NIFTY', 999999)
+        # Fetch underlying and options data from the database
+        underlying_df = pd.read_sql("SELECT * FROM underlying_data WHERE symbol = 'NIFTY'", conn, index_col='timestamp')
+        options_df = pd.read_sql("SELECT * FROM options_data WHERE symbol = 'NIFTY'", conn, index_col='timestamp')
         conn.close()
 
-        if df is not None and not df.empty:
+        if underlying_df is not None and not underlying_df.empty:
+            # Calculate PCR from options data
+            if not options_df.empty:
+                pcr_series = (options_df['put_oi'].sum(axis=1) / options_df['call_oi'].sum(axis=1)).rename('pcr')
+                df = underlying_df.join(pcr_series, how='left').fillna(method='ffill')
+            else:
+                df = underlying_df
+                df['pcr'] = 0
+
             # Feature Engineering
             df = add_technical_indicators(df)
-            # Create a dummy option chain for demonstration
-            option_chain_demo = [
-                {'put_oi': 1000, 'call_oi': 1200},
-                {'put_oi': 1500, 'call_oi': 1100}
-            ]
-            df = add_options_features(df, option_chain_demo)
+            df = add_options_features(df) # PCR is now in the df
             df = add_time_features(df)
             df = create_labels(df)
             df.dropna(inplace=True)

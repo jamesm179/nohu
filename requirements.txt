@@ -36,6 +36,7 @@ tensorflow
 TA-Lib
 joblib
 matplotlib
+py_vollib
 
 # Linting & Testing
 ruff
