@@ -1,0 +1,28 @@
+shoonya:
+  user_id: YOUR_USER_ID
+  password: YOUR_PASSWORD
+  totp_key: YOUR_TOTP_KEY
+  vendor_code: YOUR_VENDOR_CODE
+  api_secret: YOUR_API_SECRET
+  imei: YOUR_IMEI
+
+trading:
+  symbols: [NIFTY, BANKNIFTY]
+  capital: 100000
+  risk_per_trade: 0.02
+  max_positions: 5
+  confidence_threshold: 0.7
+  stop_loss_pct: 0.10
+  take_profit_pct: 0.20
+
+model:
+  type: LSTM
+  lookback_period: 60
+  retrain_frequency: weekly
+
+database:
+  host: localhost
+  port: 5432
+  user: tradingbot
+  password: YOUR_DB_PASSWORD
+  name: tradingbotdb

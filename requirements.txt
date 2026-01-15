@@ -1,6 +1,7 @@
 # Database & Cache
 psycopg2-binary
 redis
+SQLAlchemy
 
 # Message Queue
 kafka-python
@@ -13,14 +14,28 @@ pandas
 aiohttp
 websockets
 
+# Shoonya API
+# The Shoonya API is not available on PyPI.
+# It must be installed from a wheel file.
+# Download from https://github.com/Shoonya-Dev/ShoonyaApi-py
+# pip install NorenRestApiPy-0.0.22-py2.py3-none-any.whl
+norenrestapipy==0.0.22
+pyotp
+
+# Scheduling
+apscheduler
+
 # Configuration & Utilities
 python-dotenv
 pyyaml
 
-# For ML (placeholders for now)
-# scikit-learn
-# tensorflow
+# For ML (place-holders for now)
+scikit-learn
+tensorflow
 # torch
+TA-Lib
+joblib
+matplotlib
 
 # Linting & Testing
 ruff
