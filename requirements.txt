@@ -1,10 +1,8 @@
 # Database & Cache
 psycopg2-binary
-redis
 SQLAlchemy
 
 # Message Queue
-kafka-python
 
 # Numerical & Data Analysis
 numpy
